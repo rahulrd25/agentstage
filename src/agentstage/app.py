@@ -14,6 +14,8 @@ served. That keeps the FastAPI app a single object built once, in one place.
 
 from __future__ import annotations
 
+import errno
+import socket
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Self
@@ -255,7 +257,34 @@ class AgentApp:
             )
             raise ConfigError(msg) from exc
 
+        self._check_port_available(host, port)
+
         print(f"agentstage — {self.title}")
         print(f"  UI:   http://{host}:{port}/")
         print(f"  API:  http://{host}:{port}/api/docs")
         uvicorn.run(self.build(), host=host, port=port)
+
+    @staticmethod
+    def _check_port_available(host: str, port: int) -> None:
+        """Fail with an actionable message before uvicorn binds the socket.
+
+        uvicorn catches the bind ``OSError`` itself and calls ``sys.exit()``,
+        so a plain try/except around ``uvicorn.run`` never sees it — the
+        developer would otherwise get an opaque process exit with no hint
+        that another server, possibly their own, already owns the port.
+        """
+        probe = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        try:
+            probe.bind((host, port))
+        except OSError as exc:
+            if exc.errno != errno.EADDRINUSE:
+                raise
+            msg = (
+                f"Port {port} on {host} is already in use, likely by another server. "
+                f"Pass a different port (app.run(port=...)), or if you already have a "
+                f"FastAPI app running there, use app.mount(host_app) to add agentstage "
+                f"to it instead of running a second server."
+            )
+            raise ConfigError(msg) from exc
+        finally:
+            probe.close()

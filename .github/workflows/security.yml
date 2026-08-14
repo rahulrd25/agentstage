@@ -1,0 +1,27 @@
+name: Security
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    # Dependencies can grow a known vulnerability between commits, so this
+    # also runs weekly on a schedule, not only when the lockfile changes.
+    - cron: "0 6 * * 1"
+
+jobs:
+  pip-audit:
+    name: Dependency vulnerability scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v10.0.1
+        with:
+          python-version: "3.12"
+
+      - name: Export resolved dependencies
+        run: uv export --no-hashes --format requirements-txt -o requirements.txt
+
+      - name: Audit dependencies
+        run: uvx pip-audit -r requirements.txt

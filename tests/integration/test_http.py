@@ -1111,6 +1111,26 @@ def test_agent_app_is_importable_from_the_package_root():
     assert Exported is AgentApp
 
 
+def test_run_reports_a_port_already_in_use_with_actionable_guidance():
+    """A raw uvicorn OSError on a bound port is opaque; a developer running two
+    servers by mistake, or wanting to add agentstage to a FastAPI app already
+    listening there, should be pointed at a different port or at .mount()."""
+    import socket
+
+    from agentstage.errors import ConfigError
+
+    blocker = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    blocker.bind(("127.0.0.1", 0))
+    blocker.listen(1)
+    port = blocker.getsockname()[1]
+    try:
+        with pytest.raises(ConfigError, match="already in use") as exc_info:
+            AgentApp(build_agent()).run(host="127.0.0.1", port=port)
+        assert "mount" in str(exc_info.value)
+    finally:
+        blocker.close()
+
+
 # ---- Example app regression: shared model state across requests ----------
 
 
