@@ -1,0 +1,112 @@
+[project]
+name = "agentstage"
+version = "0.1.0"
+description = "Python-first UI layer for LangChain and LangGraph agents"
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [
+    { name = "rahul dhanawade", email = "rahul.dhanawade@programming.com" }
+]
+keywords = ["langchain", "langgraph", "agent", "chat", "ui", "fastapi", "llm"]
+classifiers = [
+    "Development Status :: 2 - Pre-Alpha",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Framework :: FastAPI",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Topic :: Internet :: WWW/HTTP :: WSGI :: Application",
+    "Typing :: Typed",
+]
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.141.1",
+    "langchain>=1.3.15",
+    "langgraph>=1.2.11",
+    # Required by FastAPI to parse multipart/form-data — the file upload endpoint.
+    "python-multipart>=0.0.20",
+]
+
+[project.urls]
+Repository = "https://github.com/rahuldhanawade/agentstage"
+Issues = "https://github.com/rahuldhanawade/agentstage/issues"
+
+[build-system]
+requires = ["uv_build>=0.11.8,<0.12.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "pytest>=8.4.2",
+    "pytest-asyncio>=1.3.0",
+    "ruff>=0.15.1",
+    "mypy>=1.19.0",
+    # Starlette's TestClient needs an HTTP client; httpx2 is what 1.6+ expects.
+    "httpx2>=0.28.0",
+    "uvicorn>=0.31.0",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+asyncio_mode = "auto"
+# pytest-asyncio warns unless the loop scope is set explicitly.
+asyncio_default_fixture_loop_scope = "function"
+addopts = "--strict-markers --strict-config -q"
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = [
+    "E",    # pycodestyle
+    "F",    # pyflakes
+    "I",    # isort
+    "UP",   # pyupgrade
+    "B",    # bugbear
+    "SIM",  # simplify
+    "RUF",  # ruff-specific
+    "ANN",  # annotations — the public API is typed
+    "ASYNC",
+    "A",    # builtin shadowing — `input` must be flagged where it isn't deliberate
+]
+# ANN401: `**metadata: Any` is the intended escape hatch for passthrough metadata.
+ignore = ["ANN401"]
+
+[tool.ruff.lint.flake8-bugbear]
+# FastAPI's dependency injection relies on File()/Depends()/Query() etc. as
+# argument defaults; it evaluates them per-request, not once at import time.
+extend-immutable-calls = ["fastapi.File", "fastapi.Depends", "fastapi.Query"]
+
+[tool.ruff.lint.per-file-ignores]
+# Test functions don't need return annotations to be readable.
+# RUF012: Pydantic model fields take mutable defaults by design; Pydantic copies them.
+"tests/**" = ["ANN201", "ANN202", "ANN001", "ANN002", "ANN003", "RUF012"]
+# Examples must import agentstage after a sys.path shim (tests/ is not installed),
+# so the import block is deliberately split.
+"examples/**" = ["E402", "I001", "ANN401"]
+# The generator needs the same shim to import from tests/.
+"scripts/**" = ["E402", "I001"]
+
+[tool.mypy]
+python_version = "3.12"
+files = ["src", "tests"]
+strict = true
+# Surfacing an unused ignore is how we notice when a dependency gains stubs.
+warn_unused_ignores = true
+
+[[tool.mypy.overrides]]
+# langgraph/langchain ship partial types; don't fail on their internals.
+module = ["langgraph.*", "langchain.*", "langchain_core.*"]
+follow_untyped_imports = true
+
+[[tool.mypy.overrides]]
+# Real type errors in tests still fail; requiring `-> None` on every test does not
+# catch bugs. src/ stays fully strict.
+module = ["tests.*"]
+disallow_untyped_defs = false
+disallow_incomplete_defs = false

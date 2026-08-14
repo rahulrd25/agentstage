@@ -1,0 +1,33 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+
+# Tooling caches
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# Frontend: `frontend/` holds our dev-only TypeScript and is committed.
+# `src/agentstage/static/` is the compiled output, produced at release time.
+frontend/node_modules/
+frontend/dist/
+src/agentstage/static/
+
+# Runtime artifacts produced by running the examples (e.g. threads_and_persistence).
+examples/**/*.db
+
+# Secrets / local env
+.env
+.env.*
+
+# OS / editor
+.DS_Store
+.vscode/
+.idea/
