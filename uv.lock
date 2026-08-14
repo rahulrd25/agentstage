@@ -7,7 +7,7 @@ resolution-markers = [
 ]
 
 [[package]]
-name = "agentstage"
+name = "agentstage-ui"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [

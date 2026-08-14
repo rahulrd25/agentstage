@@ -73,7 +73,7 @@ jobs:
     runs-on: ubuntu-latest
     environment:
       name: testpypi
-      url: https://test.pypi.org/project/agentstage/
+      url: https://test.pypi.org/project/agentstage-ui/
     permissions:
       id-token: write
     steps:

@@ -47,7 +47,7 @@ pip install git+https://github.com/rahulrd25/agentstage.git
 Once published, installation will be:
 
 ```bash
-pip install agentstage
+pip install agentstage-ui
 ```
 
 Requires Python 3.12 or later.

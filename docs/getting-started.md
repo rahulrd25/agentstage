@@ -3,13 +3,13 @@
 ## Install
 
 ```bash
-uv add agentstage
+uv add agentstage-ui
 ```
 
 Or with pip:
 
 ```bash
-pip install agentstage
+pip install agentstage-ui
 ```
 
 Requires Python 3.12+. No Node.js, no separate frontend build — the UI ships prebuilt inside the package.
