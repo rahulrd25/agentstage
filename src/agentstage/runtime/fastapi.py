@@ -90,10 +90,12 @@ class ResumeRequest(BaseModel):
 
     ``decision`` is a plain string rather than a boolean: LangGraph's
     ``interrupt()`` receives whatever value ``Command(resume=...)`` carries, and
-    the interrupted node decides what it means (verified — approve/reject/edit are
-    all just different resume values to LangGraph). ``approved``/``rejected`` cover
-    the common case; ``edited`` carries a replacement payload for the node to use
-    instead of a plain accept/deny.
+    the interrupted node decides what it means. For a hand-rolled ``interrupt()``
+    call in a custom graph node that is a plain bool for approve/reject, and the
+    raw ``edited_value`` for a replacement payload (verified). A prebuilt
+    middleware can impose its own protocol instead — see
+    ``_build_resume_value``, which detects that case and builds whatever that
+    middleware actually expects rather than assuming one contract fits both.
     """
 
     thread_id: str = Field(min_length=1, max_length=200)
@@ -230,11 +232,6 @@ def build_router(config: AppConfig) -> APIRouter:
         owner = await _authenticate(request)
         thread_id = require_thread_id(body.thread_id)
 
-        if body.decision == "edited":
-            resume_value: Any = body.edited_value
-        else:
-            resume_value = body.decision == "approved"
-
         if config.threads is not None:
             try:
                 await config.threads.touch(thread_id, owner=owner, title=None)
@@ -249,6 +246,14 @@ def build_router(config: AppConfig) -> APIRouter:
                     "have already been answered, or never paused."
                 ),
             )
+
+        interrupt_value = await config.adapter.pending_interrupt_value(thread_id)
+        try:
+            resume_value = _build_resume_value(
+                interrupt_value, decision=body.decision, edited_value=body.edited_value
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
 
         run_id = f"run-{uuid.uuid4().hex[:12]}"
         producer = config.adapter.resume(
@@ -327,6 +332,64 @@ def build_router(config: AppConfig) -> APIRouter:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
 
     return router
+
+
+def _is_hitl_middleware_request(value: Any) -> bool:
+    """Whether an interrupt's value is a ``langchain`` ``HumanInTheLoopMiddleware``
+    request rather than a hand-rolled ``interrupt(...)`` call's own payload.
+
+    That middleware always resumes through ``interrupt(hitl_request)["decisions"]``
+    — a structured ``{"decisions": [...]}`` reply — which a bare bool cannot
+    satisfy (``TypeError: 'bool' object is not subscriptable``). Detecting the
+    shape it always sends (``action_requests`` + ``review_configs``) is what lets
+    ``_build_resume_value`` build the right payload without knowing in advance
+    which of the two protocols created a given interrupt.
+    """
+    return (
+        isinstance(value, dict)
+        and isinstance(value.get("action_requests"), list)
+        and isinstance(value.get("review_configs"), list)
+    )
+
+
+def _build_resume_value(interrupt_value: Any, *, decision: str, edited_value: Any) -> Any:
+    """Translate a UI decision into whatever the pending interrupt actually expects.
+
+    A hand-rolled ``interrupt()`` call in a custom graph node (see
+    ``examples/human_approval``) can expect anything; agentstage has always
+    passed a plain bool for approve/reject and the raw ``edited_value`` through
+    unchanged for edit, and that contract is unconditionally preserved here.
+    ``HumanInTheLoopMiddleware`` requests are detected and answered in the
+    ``{"decisions": [...]}`` shape it actually reads on resume instead.
+    """
+    if not _is_hitl_middleware_request(interrupt_value):
+        return edited_value if decision == "edited" else decision == "approved"
+
+    if decision == "approved":
+        item: dict[str, Any] = {"type": "approve"}
+    elif decision == "rejected":
+        item = {"type": "reject"}
+    else:
+        if (
+            not isinstance(edited_value, dict)
+            or "name" not in edited_value
+            or "args" not in edited_value
+        ):
+            msg = (
+                "This interrupt was created by HumanInTheLoopMiddleware, which requires "
+                "edited_value shaped as {'name': <tool name>, 'args': {...}} to build its "
+                f"edited_action, got: {edited_value!r}."
+            )
+            raise ValueError(msg)
+        item = {
+            "type": "edit",
+            "edited_action": {"name": edited_value["name"], "args": edited_value["args"]},
+        }
+
+    # interrupt() can bundle several tool calls needing approval into one call;
+    # agentstage's UI currently offers a single decision per interrupt, so that
+    # one decision is applied to every action request in the batch.
+    return {"decisions": [item for _ in interrupt_value["action_requests"]]}
 
 
 def _serialize_thread(info: Any) -> dict[str, Any]:

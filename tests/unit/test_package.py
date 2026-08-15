@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+import re
+
 import agentstage
 
 
 def test_version_is_exposed():
-    assert agentstage.__version__ == "0.1.0"
+    """A shape check, not a pinned literal — otherwise this fails on every bump."""
+    assert re.fullmatch(r"\d+\.\d+\.\d+", agentstage.__version__)
 
 
 def test_importing_the_package_does_not_pull_in_a_web_stack():

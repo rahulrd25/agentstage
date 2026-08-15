@@ -1,6 +1,6 @@
 [project]
 name = "agentstage-ui"
-version = "0.1.0"
+version = "0.1.1"
 description = "Python-first UI layer for LangChain and LangGraph agents"
 readme = "README.md"
 license = "MIT"
@@ -96,6 +96,10 @@ extend-immutable-calls = ["fastapi.File", "fastapi.Depends", "fastapi.Query"]
 "examples/**" = ["E402", "I001", "ANN401"]
 # The generator needs the same shim to import from tests/.
 "scripts/**" = ["E402", "I001"]
+# A disposable maintainer tool against the published package, not the package itself.
+# SIM115: the log file must stay open across the whole subprocess lifetime, not
+# just one block.
+"smoke_test/**" = ["ANN201", "SIM115"]
 
 [tool.mypy]
 python_version = "3.12"

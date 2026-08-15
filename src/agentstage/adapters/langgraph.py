@@ -78,6 +78,21 @@ class LangGraphAdapter:
         snapshot = await self.agent.aget_state({"configurable": {"thread_id": thread_id}})
         return bool(snapshot.interrupts)
 
+    async def pending_interrupt_value(self, thread_id: str) -> Any:
+        """The value passed to the pending ``interrupt()`` call, or ``None``.
+
+        ``has_pending_interrupt`` only reports existence; a caller building the
+        resume payload needs to see the actual value to tell a hand-rolled
+        ``interrupt(...)`` from a prebuilt middleware's own request shape (for
+        example ``HumanInTheLoopMiddleware``, which expects a structured
+        ``{"decisions": [...]}`` reply, not a bare value) — see
+        ``runtime.fastapi._build_resume_value``.
+        """
+        snapshot = await self.agent.aget_state({"configurable": {"thread_id": thread_id}})
+        if not snapshot.interrupts:
+            return None
+        return snapshot.interrupts[0].value
+
     async def get_history(self, thread_id: str) -> list[dict[str, Any]]:
         """Reconstruct a thread's transcript from the checkpointer's saved state.
 

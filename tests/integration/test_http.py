@@ -1085,6 +1085,138 @@ def test_edited_decision_carries_a_replacement_value():
     assert "someone-else@example.com" in text
 
 
+# ---- Human-in-the-loop via langchain's HumanInTheLoopMiddleware -----------
+#
+# Distinct from build_approval_agent() above: that is a hand-rolled interrupt()
+# call in a custom node, which resumes with whatever bare value the node
+# expects. HumanInTheLoopMiddleware is langchain's own prebuilt tool-call
+# gating middleware — the current, standard way to gate a tool call with
+# create_agent — and it always resumes through
+# interrupt(hitl_request)["decisions"], a structured reply a bare bool cannot
+# satisfy. Regression coverage for the TypeError: 'bool' object is not
+# subscriptable crash this middleware combination used to hit on every
+# approve/reject/edit.
+
+
+@tool
+def send_alert(recipient: str, message: str) -> str:
+    """Send an alert to a person."""
+    return f"alert sent to {recipient}: {message}"
+
+
+def build_hitl_middleware_agent() -> Any:
+    from langchain.agents import create_agent
+    from langchain.agents.middleware import HumanInTheLoopMiddleware
+    from langgraph.checkpoint.memory import InMemorySaver
+
+    model = FakeToolCallingModel(
+        responses=[
+            AIMessage(
+                content="",
+                tool_calls=[
+                    make_tool_call(
+                        "send_alert",
+                        {"recipient": "alice@example.com", "message": "build passed"},
+                        "call-1",
+                    )
+                ],
+            ),
+            AIMessage(content="Done."),
+        ]
+    )
+    return create_agent(
+        model=model,
+        tools=[send_alert],
+        middleware=[HumanInTheLoopMiddleware(interrupt_on={"send_alert": True})],
+        checkpointer=InMemorySaver(),
+    )
+
+
+def test_hitl_middleware_interrupt_carries_the_action_request():
+    client = client_for(AgentApp(build_hitl_middleware_agent()).human_approval(enabled=True))
+
+    events = post_chat(client, "send an alert", thread_id="t-hitl-1")
+    kinds = [e["type"] for e in events]
+
+    assert "interrupt_created" in kinds
+    interrupt_event = next(e for e in events if e["type"] == "interrupt_created")
+    value = interrupt_event["data"]["value"]
+    assert value["action_requests"][0]["name"] == "send_alert"
+
+
+def test_hitl_middleware_approve_runs_the_tool_and_completes():
+    client = client_for(AgentApp(build_hitl_middleware_agent()).human_approval(enabled=True))
+    first = post_chat(client, "send an alert", thread_id="t-hitl-2")
+    thread_id = first[0]["thread_id"]
+
+    with client.stream(
+        "POST", "/api/resume", json={"thread_id": thread_id, "decision": "approved"}
+    ) as response:
+        assert response.status_code == 200
+        events = read_events(response)
+
+    kinds = [e["type"] for e in events]
+    assert "run_failed" not in kinds
+    assert kinds[-1] == "run_completed"
+    completed = [e for e in events if e["type"] == "tool_call_completed"]
+    assert completed and "alice@example.com" in completed[0]["data"]["result"]
+
+
+def test_hitl_middleware_reject_completes_without_running_the_tool():
+    client = client_for(AgentApp(build_hitl_middleware_agent()).human_approval(enabled=True))
+    first = post_chat(client, "send an alert", thread_id="t-hitl-3")
+    thread_id = first[0]["thread_id"]
+
+    with client.stream(
+        "POST", "/api/resume", json={"thread_id": thread_id, "decision": "rejected"}
+    ) as response:
+        assert response.status_code == 200
+        events = read_events(response)
+
+    kinds = [e["type"] for e in events]
+    assert "run_failed" not in kinds
+    assert kinds[-1] == "run_completed"
+    completed = [e for e in events if e["type"] == "tool_call_completed"]
+    assert not any("alert sent to" in e["data"].get("result", "") for e in completed)
+
+
+def test_hitl_middleware_edit_replaces_the_tool_args_before_running():
+    client = client_for(AgentApp(build_hitl_middleware_agent()).human_approval(enabled=True))
+    first = post_chat(client, "send an alert", thread_id="t-hitl-4")
+    thread_id = first[0]["thread_id"]
+
+    with client.stream(
+        "POST",
+        "/api/resume",
+        json={
+            "thread_id": thread_id,
+            "decision": "edited",
+            "edited_value": {
+                "name": "send_alert",
+                "args": {"recipient": "bob@example.com", "message": "different message"},
+            },
+        },
+    ) as response:
+        assert response.status_code == 200
+        events = read_events(response)
+
+    completed = [e for e in events if e["type"] == "tool_call_completed"]
+    assert completed and "bob@example.com" in completed[0]["data"]["result"]
+
+
+def test_hitl_middleware_malformed_edit_is_rejected_with_400():
+    client = client_for(AgentApp(build_hitl_middleware_agent()).human_approval(enabled=True))
+    first = post_chat(client, "send an alert", thread_id="t-hitl-5")
+    thread_id = first[0]["thread_id"]
+
+    response = client.post(
+        "/api/resume",
+        json={"thread_id": thread_id, "decision": "edited", "edited_value": {"oops": True}},
+    )
+
+    assert response.status_code == 400
+
+
 def test_importing_agentstage_stays_cheap():
     """A library consumer must not pay for a web stack they never start."""
     import subprocess

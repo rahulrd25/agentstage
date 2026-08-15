@@ -22,6 +22,7 @@ src/agentstage/static/
 
 # Runtime artifacts produced by running the examples (e.g. threads_and_persistence).
 examples/**/*.db
+smoke_test/server.log
 
 # Secrets / local env
 .env
