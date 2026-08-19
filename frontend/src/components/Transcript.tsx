@@ -2,16 +2,14 @@ import { useEffect, useRef } from 'react'
 import { MessageBubble } from './MessageBubble'
 import { ToolCard } from './ToolCard'
 import { ApprovalCard } from './ApprovalCard'
-import type { ApprovalState, TranscriptItem } from '../hooks/useAgentChat'
+import type { TranscriptItem } from '../hooks/useAgentChat'
 
 export function Transcript({
   items,
-  approval,
   running,
   onDecideApproval,
 }: {
   items: TranscriptItem[]
-  approval: ApprovalState | null
   running: boolean
   onDecideApproval: (decision: 'approved' | 'rejected') => void
 }) {
@@ -36,7 +34,7 @@ export function Transcript({
     wasPinnedRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 60
   }
 
-  const isEmpty = items.length === 0 && !approval
+  const isEmpty = items.length === 0
 
   return (
     <main
@@ -55,11 +53,16 @@ export function Transcript({
       {items.map((item) =>
         item.kind === 'message' ? (
           <MessageBubble key={item.message.id} message={item.message} />
+        ) : item.kind === 'tool' ? (
+          <ToolCard key={item.tool.id} tool={item.tool} onDecideApproval={onDecideApproval} />
         ) : (
-          <ToolCard key={item.tool.id} tool={item.tool} />
+          <ApprovalCard
+            key={item.approval.id}
+            approval={item.approval}
+            onDecide={onDecideApproval}
+          />
         ),
       )}
-      {approval && <ApprovalCard approval={approval} onDecide={onDecideApproval} />}
     </main>
   )
 }

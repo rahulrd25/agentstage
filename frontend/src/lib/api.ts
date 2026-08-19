@@ -142,3 +142,34 @@ export function formatValue(value: unknown): string {
     return String(value)
   }
 }
+
+/** A single value formatted for one row of a key/value list — never raw JSON syntax for a plain string. */
+export function formatArgValue(value: unknown): string {
+  return typeof value === 'string' ? value : formatValue(value)
+}
+
+/** Key/value rows for a plain args-shaped object, or null when it isn't one (caller falls back to formatValue). */
+export function keyValueRows(value: unknown): [string, unknown][] | null {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return null
+  const entries = Object.entries(value as Record<string, unknown>)
+  return entries.length > 0 ? entries : null
+}
+
+export interface ActionRequest {
+  name: string
+  args?: Record<string, unknown>
+  description?: string
+}
+
+/** HumanInTheLoopMiddleware's interrupt value; a hand-rolled interrupt() call
+ * can send anything, so this is a best-effort read, not an assumed contract. */
+export function actionRequestsOf(value: unknown): ActionRequest[] | null {
+  if (
+    typeof value === 'object' &&
+    value !== null &&
+    Array.isArray((value as { action_requests?: unknown }).action_requests)
+  ) {
+    return (value as { action_requests: ActionRequest[] }).action_requests
+  }
+  return null
+}

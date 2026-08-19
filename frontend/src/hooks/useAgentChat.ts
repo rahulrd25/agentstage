@@ -1,5 +1,6 @@
 import { useCallback, useRef, useState } from 'react'
 import {
+  actionRequestsOf,
   ApiError,
   apiUrl,
   deleteThread as apiDeleteThread,
@@ -9,6 +10,11 @@ import {
 } from '../lib/api'
 import type { AgentEvent, Citation, HistoryTurn, ThreadInfo, UploadedAttachment } from '../types'
 
+export interface ToolApprovalState {
+  id: string
+  decision: 'pending' | 'approved' | 'rejected'
+}
+
 export interface ToolCallState {
   id: string
   name: string
@@ -16,6 +22,10 @@ export interface ToolCallState {
   status: 'running' | 'completed' | 'failed'
   result?: unknown
   error?: string
+  // Present only when a HumanInTheLoopMiddleware interrupt gates this call —
+  // the decision then renders as part of this same card instead of a
+  // separate one, since they describe one action, not two.
+  approval?: ToolApprovalState
 }
 
 export interface MessageState {
@@ -28,6 +38,7 @@ export interface MessageState {
 }
 
 export interface ApprovalState {
+  id: string
   threadId: string
   value: unknown
   decision: 'pending' | 'approved' | 'rejected'
@@ -39,13 +50,31 @@ export interface ApprovalState {
 export type TranscriptItem =
   | { kind: 'message'; message: MessageState }
   | { kind: 'tool'; tool: ToolCallState }
+  | { kind: 'approval'; approval: ApprovalState }
 
 type Status = 'idle' | 'running' | 'error' | 'stopped'
+
+// A resumed run (after a human-in-the-loop interrupt) is its own bounded run
+// and legitimately restarts the same tool_call_id — this resets the existing
+// card in place rather than appending a duplicate one alongside it. It also
+// re-fires with a fresh tool object carrying no `approval` field, so any
+// already-merged approval must be preserved rather than silently dropped.
+export function upsertToolCall(
+  prev: TranscriptItem[],
+  tool: ToolCallState,
+): TranscriptItem[] {
+  const existingIndex = prev.findIndex((item) => item.kind === 'tool' && item.tool.id === tool.id)
+  if (existingIndex === -1) return [...prev, { kind: 'tool', tool }]
+  const next = [...prev]
+  const existing = next[existingIndex]
+  const preservedApproval = existing.kind === 'tool' ? existing.tool.approval : undefined
+  next[existingIndex] = { kind: 'tool', tool: { ...tool, approval: tool.approval ?? preservedApproval } }
+  return next
+}
 
 export function useAgentChat(threadsEnabled: boolean) {
   const [threadId, setThreadId] = useState<string | null>(null)
   const [transcript, setTranscript] = useState<TranscriptItem[]>([])
-  const [approval, setApproval] = useState<ApprovalState | null>(null)
   const [status, setStatus] = useState<Status>('idle')
   const [statusLabel, setStatusLabel] = useState('Ready')
   const [error, setError] = useState<string | null>(null)
@@ -59,6 +88,13 @@ export function useAgentChat(threadsEnabled: boolean) {
   const controllerRef = useRef<AbortController | null>(null)
   const lastMessageRef = useRef<{ text: string; attachmentIds: string[] } | null>(null)
   const pendingInterruptRef = useRef(false)
+  // The currently-unanswered approval, if any — a ref rather than state since
+  // resolveApproval needs its threadId synchronously, before runStream can be
+  // called, not after a setState round-trip. The approval itself now lives as
+  // a positioned entry in `transcript` (see interrupt_created below), not a
+  // separate slot: that used to mean a second interrupt in the same thread
+  // silently erased the previous one's card instead of leaving it in place.
+  const pendingApprovalRef = useRef<{ id: string; threadId: string } | null>(null)
 
   const refreshThreads = useCallback(async () => {
     if (!threadsEnabled) return
@@ -133,18 +169,13 @@ export function useAgentChat(threadsEnabled: boolean) {
 
       case 'tool_call_started': {
         const data = event.data ?? {}
-        setTranscript((prev) => [
-          ...prev,
-          {
-            kind: 'tool',
-            tool: {
-              id: event.tool_call_id!,
-              name: (data.name as string) ?? 'tool',
-              args: data.args,
-              status: 'running',
-            },
-          },
-        ])
+        const tool: ToolCallState = {
+          id: event.tool_call_id!,
+          name: (data.name as string) ?? 'tool',
+          args: data.args,
+          status: 'running',
+        }
+        setTranscript((prev) => upsertToolCall(prev, tool))
         setStatusLabel(`Running ${(data.name as string) ?? 'tool'}…`)
         break
       }
@@ -171,16 +202,56 @@ export function useAgentChat(threadsEnabled: boolean) {
         break
       }
 
-      case 'interrupt_created':
+      case 'interrupt_created': {
         pendingInterruptRef.current = true
-        setApproval({
-          threadId: event.thread_id!,
-          value: event.data?.value,
-          decision: 'pending',
+        const interruptId = event.data?.interrupt_id as string
+        const interruptThreadId = event.thread_id!
+        const value = event.data?.value
+        pendingApprovalRef.current = { id: interruptId, threadId: interruptThreadId }
+
+        const actionRequests = actionRequestsOf(value)
+        setTranscript((prev) => {
+          // A HumanInTheLoopMiddleware interrupt describes the same action as
+          // an already-visible tool card (its tool_call_started fired first),
+          // so the decision renders as part of that one card, not a second,
+          // redundant one. Matched by name in order — the interrupt's own
+          // ActionRequest has no tool_call_id to correlate by.
+          if (actionRequests && actionRequests.length > 0) {
+            let requestIndex = 0
+            let mergedAny = false
+            const next = prev.map((item) => {
+              if (
+                requestIndex < actionRequests.length &&
+                item.kind === 'tool' &&
+                item.tool.status === 'running' &&
+                !item.tool.approval &&
+                item.tool.name === actionRequests[requestIndex].name
+              ) {
+                requestIndex += 1
+                mergedAny = true
+                return {
+                  ...item,
+                  tool: { ...item.tool, approval: { id: interruptId, decision: 'pending' as const } },
+                }
+              }
+              return item
+            })
+            if (mergedAny) return next
+          }
+          // Fallback: a hand-rolled interrupt() call with no associated tool
+          // call at all (see examples/human_approval) still gets its own card.
+          const newApproval: ApprovalState = {
+            id: interruptId,
+            threadId: interruptThreadId,
+            value,
+            decision: 'pending',
+          }
+          return [...prev, { kind: 'approval', approval: newApproval }]
         })
         setStatus('running')
         setStatusLabel('Waiting for approval')
         break
+      }
 
       case 'run_failed':
         setError((event.data?.error as string) || 'The agent failed.')
@@ -275,15 +346,28 @@ export function useAgentChat(threadsEnabled: boolean) {
 
   const resolveApproval = useCallback(
     async (decision: 'approved' | 'rejected') => {
+      const approval = pendingApprovalRef.current
       if (!approval) return
       setError(null)
       pendingInterruptRef.current = false
-      const targetThreadId = approval.threadId
-      const ok = await runStream(apiUrl('resume'), { thread_id: targetThreadId, decision })
-      setApproval((prev) => (prev ? { ...prev, decision: ok ? decision : prev.decision } : prev))
+      pendingApprovalRef.current = null
+      const ok = await runStream(apiUrl('resume'), { thread_id: approval.threadId, decision })
+      if (ok) {
+        setTranscript((prev) =>
+          prev.map((item) => {
+            if (item.kind === 'tool' && item.tool.approval?.id === approval.id) {
+              return { ...item, tool: { ...item.tool, approval: { ...item.tool.approval, decision } } }
+            }
+            if (item.kind === 'approval' && item.approval.id === approval.id) {
+              return { ...item, approval: { ...item.approval, decision } }
+            }
+            return item
+          }),
+        )
+      }
       refreshThreads() // Bumps the thread's position to most-recently-used.
     },
-    [approval, runStream, refreshThreads],
+    [runStream, refreshThreads],
   )
 
   const retry = useCallback(() => {
@@ -300,7 +384,7 @@ export function useAgentChat(threadsEnabled: boolean) {
     if (running) return
     resetTranscript()
     setThreadId(null)
-    setApproval(null)
+    pendingApprovalRef.current = null
   }, [running, resetTranscript])
 
   const openThread = useCallback(
@@ -308,7 +392,7 @@ export function useAgentChat(threadsEnabled: boolean) {
       if (running || id === threadId) return
       resetTranscript()
       setThreadId(id)
-      setApproval(null)
+      pendingApprovalRef.current = null
       try {
         const history = await fetchThreadHistory(id)
         setTranscript(historyToTranscript(history))
@@ -338,7 +422,6 @@ export function useAgentChat(threadsEnabled: boolean) {
   return {
     threadId,
     transcript,
-    approval,
     status,
     statusLabel,
     error,

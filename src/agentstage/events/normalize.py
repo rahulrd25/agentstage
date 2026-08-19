@@ -64,6 +64,11 @@ class StreamNormalizer:
         self.interrupted = False
         #: message ids that have already emitted `message_started`
         self._started_messages: set[str] = set()
+        #: message ids that have already emitted `message_completed` at least
+        #: once — a later node revising the same id (redaction, citation
+        #: injection, or any other `after_model`-style middleware) still needs
+        #: its own `message_completed`, not silent ignoring, see `_finish_message`.
+        self._completed_messages: set[str] = set()
         #: tool_call_id -> tool name, for calls awaiting a result
         self._open_tool_calls: dict[str, str] = {}
         #: tool_call_ids already completed or failed, to drop duplicate results
@@ -288,12 +293,29 @@ class StreamNormalizer:
         ]
 
     def _finish_message(self, message: Any) -> list[AgentEvent]:
-        """Close a message once its final form appears on ``updates``."""
+        """Close a message once its final form appears on ``updates``.
+
+        A node later than the one that first produced a message can still
+        revise it under the same id — a redaction, citation-injection, or any
+        other ``after_model``-style middleware editing the model's own reply.
+        That revision must still reach the client as its own
+        ``message_completed``: the frontend already upserts by ``message_id``,
+        so re-emitting here is what lets it show the corrected content instead
+        of the stale pre-middleware text forever (verified: the checkpointer's
+        own final state, and therefore ``get_history()``, already reflects the
+        revision — without this, a live run and a reload of the same thread
+        permanently disagree on what the agent actually said).
+        """
         message_id = getattr(message, "id", None)
-        if not message_id or message_id not in self._started_messages:
+        if not message_id:
             return []
-        self._started_messages.discard(message_id)
-        return [self._stamp(self._message_completed(message_id, message))]
+        if message_id in self._started_messages:
+            self._started_messages.discard(message_id)
+            self._completed_messages.add(message_id)
+            return [self._stamp(self._message_completed(message_id, message))]
+        if message_id in self._completed_messages:
+            return [self._stamp(self._message_completed(message_id, message))]
+        return []
 
     def _handle_interrupt(self, raw: Any) -> list[AgentEvent]:
         """Emit an event per pending interrupt.

@@ -67,7 +67,6 @@ export default function App() {
 
         <Transcript
           items={chat.transcript}
-          approval={chat.approval}
           running={chat.running}
           onDecideApproval={chat.resolveApproval}
         />

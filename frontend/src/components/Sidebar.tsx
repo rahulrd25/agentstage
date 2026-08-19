@@ -18,7 +18,7 @@ export function Sidebar({
   return (
     <nav className="sidebar" hidden={hidden}>
       <button type="button" className="ghost new-thread" onClick={onNewThread}>
-        + New chat
+        New chat
       </button>
       <div className="thread-list">
         {threads.map((thread) => (
