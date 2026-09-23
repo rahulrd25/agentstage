@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { actionRequestsOf, formatArgValue, formatValue } from '../lib/api'
 import type { ApprovalState } from '../hooks/useAgentChat'
 
@@ -14,6 +14,16 @@ export function ApprovalCard({
   onDecide: (decision: 'approved' | 'rejected') => void
 }) {
   const [deciding, setDeciding] = useState(false)
+  const cardRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (approval.decision === 'pending') {
+      const timer = setTimeout(() => {
+        cardRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+      }, 50)
+      return () => clearTimeout(timer)
+    }
+  }, [approval.decision])
 
   const decide = (decision: 'approved' | 'rejected') => {
     setDeciding(true)
@@ -42,7 +52,7 @@ export function ApprovalCard({
   }
 
   return (
-    <div className="approval" data-state="pending">
+    <div ref={cardRef} className="approval" data-state="pending">
       <div className="approval-heading">Approval requested</div>
       <div className="approval-body">
         {actions ? (
@@ -69,7 +79,7 @@ export function ApprovalCard({
         <div className="approval-actions">
           <button
             type="button"
-            className="primary"
+            className="btn-approve"
             disabled={deciding}
             onClick={() => decide('approved')}
           >
@@ -77,7 +87,7 @@ export function ApprovalCard({
           </button>
           <button
             type="button"
-            className="ghost"
+            className="btn-reject"
             disabled={deciding}
             onClick={() => decide('rejected')}
           >

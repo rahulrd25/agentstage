@@ -186,13 +186,19 @@ class AgentApp:
         # index.html is served through a route rather than by StaticFiles so the API
         # prefix can be injected. The UI is served from "/" while the API lives
         # under a prefix, so relative fetch() URLs would resolve to the wrong path.
-        html = index.read_text(encoding="utf-8").replace(
-            'data-api-base="/api"', f'data-api-base="{api_prefix}"'
-        )
-
         @app.get("/", include_in_schema=False)
         async def ui() -> HTMLResponse:
-            return HTMLResponse(html)
+            content = index.read_text(encoding="utf-8").replace(
+                'data-api-base="/api"', f'data-api-base="{api_prefix}"'
+            )
+            return HTMLResponse(
+                content,
+                headers={
+                    "Cache-Control": "no-cache, no-store, must-revalidate",
+                    "Pragma": "no-cache",
+                    "Expires": "0",
+                },
+            )
 
         # Mounted last so it cannot shadow the API or the index route.
         app.mount("/", StaticFiles(directory=STATIC_DIR, html=True), name="ui")

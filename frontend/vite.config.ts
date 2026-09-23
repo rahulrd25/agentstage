@@ -1,12 +1,13 @@
 /// <reference types="vitest/config" />
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
+import tailwindcss from '@tailwindcss/vite'
 
 // The built app is served from wherever AgentApp.mount()/.build() puts it —
 // possibly under a host app's own prefix (see docs/architecture.md) — so asset
 // URLs must be relative, never absolute from "/".
 export default defineConfig({
-  plugins: [react()],
+  plugins: [react(), tailwindcss()],
   base: './',
   build: {
     // Ships straight into the Python package; `AgentApp.build()` serves this

@@ -217,26 +217,41 @@ export function useAgentChat(threadsEnabled: boolean) {
           // redundant one. Matched by name in order — the interrupt's own
           // ActionRequest has no tool_call_id to correlate by.
           if (actionRequests && actionRequests.length > 0) {
-            let requestIndex = 0
-            let mergedAny = false
-            const next = prev.map((item) => {
-              if (
-                requestIndex < actionRequests.length &&
-                item.kind === 'tool' &&
-                item.tool.status === 'running' &&
-                !item.tool.approval &&
-                item.tool.name === actionRequests[requestIndex].name
-              ) {
-                requestIndex += 1
-                mergedAny = true
-                return {
-                  ...item,
-                  tool: { ...item.tool, approval: { id: interruptId, decision: 'pending' as const } },
+            const next = [...prev]
+            const unassignedIndices = next
+              .map((item, idx) =>
+                item.kind === 'tool' && item.tool.status === 'running' && !item.tool.approval
+                  ? idx
+                  : -1,
+              )
+              .filter((idx) => idx !== -1)
+
+            if (unassignedIndices.length > 0) {
+              let mergedAny = false
+              let reqIdx = 0
+              for (const cardIdx of unassignedIndices) {
+                if (reqIdx >= actionRequests.length) break
+                const item = next[cardIdx] as { kind: 'tool'; tool: ToolCallState }
+                const matchedAction = actionRequests.slice(reqIdx).find((a) => a.name === item.tool.name)
+                if (matchedAction) {
+                  reqIdx = actionRequests.indexOf(matchedAction) + 1
+                  mergedAny = true
+                  const updatedArgs =
+                    matchedAction.args && Object.keys(matchedAction.args).length > 0
+                      ? matchedAction.args
+                      : item.tool.args
+                  next[cardIdx] = {
+                    ...item,
+                    tool: {
+                      ...item.tool,
+                      args: updatedArgs,
+                      approval: { id: interruptId, decision: 'pending' as const },
+                    },
+                  }
                 }
               }
-              return item
-            })
-            if (mergedAny) return next
+              if (mergedAny) return next
+            }
           }
           // Fallback: a hand-rolled interrupt() call with no associated tool
           // call at all (see examples/human_approval) still gets its own card.
@@ -351,6 +366,21 @@ export function useAgentChat(threadsEnabled: boolean) {
       setError(null)
       pendingInterruptRef.current = false
       pendingApprovalRef.current = null
+
+      // Optimistically record decision in state immediately so UI updates instantly
+      // and subsequent events/interrupts see the resolved decision.
+      setTranscript((prev) =>
+        prev.map((item) => {
+          if (item.kind === 'tool' && item.tool.approval?.id === approval.id) {
+            return { ...item, tool: { ...item.tool, approval: { ...item.tool.approval, decision } } }
+          }
+          if (item.kind === 'approval' && item.approval.id === approval.id) {
+            return { ...item, approval: { ...item.approval, decision } }
+          }
+          return item
+        }),
+      )
+
       const ok = await runStream(apiUrl('resume'), { thread_id: approval.threadId, decision })
       if (ok) {
         setTranscript((prev) =>

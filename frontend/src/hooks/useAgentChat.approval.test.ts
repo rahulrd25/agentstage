@@ -156,4 +156,95 @@ describe('useAgentChat — human-in-the-loop transcript persistence', () => {
     expect(resolved?.kind).toBe('tool')
     expect(resolved?.tool).toMatchObject({ status: 'failed', approval: { id: 'int-1', decision: 'rejected' } })
   })
+
+  test('two HumanInTheLoopMiddleware interrupts in a row with approved decisions both retain their cards and approval states', async () => {
+    const responses: Response[] = [
+      // 1. First prompt -> tool_call_started (call-1) + interrupt_created (int-1)
+      sseResponse([
+        { type: 'run_started', run_id: 'r1', thread_id: 'thread-1' },
+        {
+          type: 'tool_call_started',
+          run_id: 'r1',
+          thread_id: 'thread-1',
+          tool_call_id: 'call-1',
+          data: { name: 'send_alert', args: { recipient: 'Raj', message: 'server is down' } },
+        },
+        {
+          type: 'interrupt_created',
+          run_id: 'r1',
+          thread_id: 'thread-1',
+          data: {
+            interrupt_id: 'int-1',
+            value: {
+              action_requests: [
+                { name: 'send_alert', args: { recipient: 'Raj', message: 'server is down' } },
+              ],
+            },
+          },
+        },
+      ]),
+      // 2. resolveApproval('approved') -> call-1 completes
+      sseResponse([
+        { type: 'run_started', run_id: 'r2', thread_id: 'thread-1' },
+        {
+          type: 'tool_call_started',
+          run_id: 'r2',
+          thread_id: 'thread-1',
+          tool_call_id: 'call-1',
+          data: { name: 'send_alert', args: { recipient: 'Raj', message: 'server is down' } },
+        },
+        {
+          type: 'tool_call_completed',
+          run_id: 'r2',
+          thread_id: 'thread-1',
+          tool_call_id: 'call-1',
+          data: { result: 'Alert sent to Raj.', name: 'send_alert' },
+        },
+        { type: 'run_completed', run_id: 'r2', thread_id: 'thread-1' },
+      ]),
+      // 3. Second prompt -> tool_call_started (call-2) + interrupt_created (int-2)
+      sseResponse([
+        { type: 'run_started', run_id: 'r3', thread_id: 'thread-1' },
+        {
+          type: 'tool_call_started',
+          run_id: 'r3',
+          thread_id: 'thread-1',
+          tool_call_id: 'call-2',
+          data: { name: 'send_alert', args: { recipient: 'Kiran', message: 'server is down' } },
+        },
+        {
+          type: 'interrupt_created',
+          run_id: 'r3',
+          thread_id: 'thread-1',
+          data: {
+            interrupt_id: 'int-2',
+            value: {
+              action_requests: [
+                { name: 'send_alert', args: { recipient: 'Kiran', message: 'server is down' } },
+              ],
+            },
+          },
+        },
+      ]),
+    ]
+    let call = 0
+    globalThis.fetch = vi.fn(() => Promise.resolve(responses[call++])) as unknown as typeof fetch
+
+    const { result } = renderHook(() => useAgentChat(false))
+
+    await act(async () => {
+      await result.current.send('send an alert to Raj', [])
+    })
+    await act(async () => {
+      await result.current.resolveApproval('approved')
+    })
+    await act(async () => {
+      await result.current.send('send an alert to Kiran', [])
+    })
+
+    const tools = result.current.transcript.filter((item) => item.kind === 'tool')
+    expect(tools).toHaveLength(2)
+    expect(tools[0].tool.approval).toMatchObject({ id: 'int-1', decision: 'approved' })
+    expect(tools[1].tool.approval).toMatchObject({ id: 'int-2', decision: 'pending' })
+  })
 })

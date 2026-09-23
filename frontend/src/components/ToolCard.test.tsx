@@ -32,7 +32,7 @@ describe('ToolCard', () => {
 
   test('a pending approval shows Approve/Reject and calls onDecideApproval', () => {
     const onDecideApproval = vi.fn()
-    const { getByText } = render(
+    const { getByText, queryByText } = render(
       <ToolCard
         tool={tool({ approval: { id: 'int-1', decision: 'pending' } })}
         onDecideApproval={onDecideApproval}
@@ -43,13 +43,11 @@ describe('ToolCard', () => {
     fireEvent.click(getByText('Reject'))
 
     expect(onDecideApproval).toHaveBeenCalledWith('rejected')
-    expect(getByText('Approve')).toBeDisabled()
+    // As soon as a decision is made, the card closes immediately
+    expect(queryByText('Approve')).not.toBeInTheDocument()
   })
 
   test('a resolved approval shows the decision as the status, with no leftover Approve/Reject', () => {
-    // A failed tool starts expanded by default (same as any other failure),
-    // so the body — and the absence of Approve/Reject inside it — is already
-    // visible without needing to click anything open first.
     const { getByText, queryByText } = render(
       <ToolCard
         tool={tool({
@@ -61,6 +59,8 @@ describe('ToolCard', () => {
     )
 
     expect(getByText('Rejected')).toBeInTheDocument()
+    // Resolved cards default to collapsed; click header to expand and inspect body
+    fireEvent.click(getByText('send_alert'))
     expect(getByText('recipient')).toBeInTheDocument()
     expect(queryByText('Approve')).not.toBeInTheDocument()
     expect(queryByText('Reject')).not.toBeInTheDocument()

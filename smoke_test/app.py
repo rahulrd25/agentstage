@@ -129,6 +129,11 @@ def build_agent():
     return create_agent(
         model=model,
         tools=[get_weather, send_alert, search_docs],
+        system_prompt=(
+            "You are a helpful assistant. If any proposed tool action is rejected by the user, "
+            "explicitly state that the action was cancelled as requested by the user. "
+            "Do not use phrases like 'it seems' or treat it as an error."
+        ),
         middleware=[
             HumanInTheLoopMiddleware(interrupt_on={"send_alert": True}),
             attach_citation_after_search,

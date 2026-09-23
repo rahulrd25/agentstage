@@ -1,3 +1,5 @@
+@import "tailwindcss";
+
 /* agentstage — "instrument panel" theme.
    A chat UI is an operator's console for a running process, not a document —
    so structural/status text (thread titles, tool names, timestamps, state
@@ -384,7 +386,8 @@ textarea {
      ever actually scroll rather than push .header/.composer off-screen. */
   min-height: 0;
   overflow-y: auto;
-  padding: 24px clamp(16px, 4vw, 48px);
+  overflow-anchor: auto;
+  padding: 24px clamp(16px, 4vw, 48px) 36px;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -393,6 +396,21 @@ textarea {
 
 .transcript > * {
   width: min(100%, var(--content-width));
+}
+
+.transcript::after {
+  content: '';
+  display: block;
+  height: 60px;
+  flex: none;
+  width: 100%;
+}
+
+.transcript-scroll-anchor {
+  overflow-anchor: auto;
+  height: 1px;
+  flex: none;
+  width: 100%;
 }
 
 .empty {
@@ -541,19 +559,24 @@ textarea {
   border: 1px solid var(--border);
   border-radius: var(--radius);
   background: var(--surface);
+  box-shadow: var(--shadow-1);
   overflow: hidden;
   font-size: 13px;
+  scroll-margin-bottom: 80px;
+  scroll-margin-top: 48px;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
 }
 .tool[data-pending-approval='true'] {
-  border-color: var(--signal);
-  box-shadow: var(--shadow-1);
+  border: 1.5px solid var(--warn);
+  box-shadow: 0 4px 16px color-mix(in srgb, var(--warn) 20%, transparent);
+  margin-bottom: 24px;
 }
 .tool-summary {
   display: flex;
   align-items: center;
   gap: 9px;
   width: 100%;
-  padding: 10px 14px;
+  padding: 11px 15px;
   border: none;
   margin: 0;
   background: none;
@@ -563,15 +586,34 @@ textarea {
   text-align: left;
   font-family: var(--mono);
 }
+.tool-summary:hover {
+  background: color-mix(in srgb, var(--surface-2) 40%, transparent);
+}
 .tool-name {
   font: 600 13px var(--mono);
+  color: var(--text);
 }
 .tool-state {
   margin-left: auto;
-  font: 500 11px var(--mono);
+  font: 600 11px var(--mono);
   text-transform: uppercase;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.05em;
   color: var(--text-dim);
+  padding: 2px 8px;
+  border-radius: 4px;
+  background: var(--surface-2);
+}
+.tool-state[data-state='awaiting'] {
+  color: #d97706;
+  background: color-mix(in srgb, #f59e0b 15%, transparent);
+}
+.tool-state[data-state='approved'] {
+  color: var(--ok);
+  background: var(--ok-soft);
+}
+.tool-state[data-state='rejected'] {
+  color: var(--danger);
+  background: var(--danger-soft);
 }
 .tool[data-state='completed'] .tool-state {
   color: var(--ok);
@@ -579,26 +621,46 @@ textarea {
 .tool[data-state='failed'] .tool-state {
   color: var(--danger);
 }
-.tool[data-pending-approval='true'] .tool-state {
-  color: var(--signal-ink);
+.tool-chevron {
+  display: inline-block;
+  font-size: 12px;
+  color: var(--text-dim);
+  transition: transform 0.2s ease;
+  margin-left: 4px;
+}
+.tool-chevron.expanded {
+  transform: rotate(180deg);
 }
 .tool-body {
-  padding: 0 14px 12px;
+  padding: 12px 15px 14px;
   border-top: 1px solid var(--border);
-  margin-top: -1px;
-  padding-top: 10px;
+  background: var(--bg);
 }
 .tool-label {
-  font: 600 10px var(--mono);
+  font: 700 11px var(--mono);
   text-transform: uppercase;
-  letter-spacing: 0.06em;
+  letter-spacing: 0.08em;
   color: var(--text-dim);
-  margin: 8px 0 4px;
+  margin: 6px 0 6px;
 }
+.tool-args-scroll {
+  max-height: 180px;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+.tool-args-scroll::-webkit-scrollbar {
+  width: 5px;
+}
+.tool-args-scroll::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 4px;
+}
+
 .tool pre {
   margin: 0;
-  padding: 9px 11px;
-  background: var(--surface-2);
+  padding: 10px 12px;
+  background: var(--surface);
+  border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   overflow-x: auto;
   font: 12px/1.55 var(--mono);
@@ -608,6 +670,7 @@ textarea {
 .tool[data-state='failed'] .tool-error {
   color: var(--danger);
   background: var(--danger-soft);
+  border-color: color-mix(in srgb, var(--danger) 30%, transparent);
 }
 
 .spinner {
@@ -636,45 +699,154 @@ textarea {
   background: var(--ok);
 }
 .dot[data-state='awaiting'] {
-  background: var(--signal);
+  background: var(--warn);
 }
 .dot[data-state='failed'] {
   background: var(--danger);
 }
 
-/* Approval card --------------------------------------------------------------
-   Distinct from a tool card: this is a decision point, not a status readout,
-   so it earns the signal color as a border rather than the neutral frame
-   every other card uses. */
+/* Approval banner inside card */
+.approval-banner {
+  margin-top: 12px;
+  padding: 12px 14px;
+  background: color-mix(in srgb, var(--warn) 10%, var(--surface));
+  border: 1px solid color-mix(in srgb, var(--warn) 40%, transparent);
+  border-radius: var(--radius-sm);
+}
+.approval-banner-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 4px;
+}
+.approval-banner-icon {
+  font-size: 13px;
+}
+.approval-banner-title {
+  font: 700 11px var(--mono);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #b45309;
+}
+:root[data-theme='dark'] .approval-banner-title,
+:root:not([data-theme='light']) .approval-banner-title {
+  color: #f59e0b;
+}
+.approval-banner-desc {
+  margin: 0 0 10px;
+  font: 400 12px var(--sans);
+  color: var(--text-dim);
+  line-height: 1.4;
+}
+
+.approval-status-banner {
+  margin-top: 10px;
+  padding: 8px 12px;
+  font: 600 12px var(--sans);
+  border-radius: var(--radius-sm);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.approval-status-banner.approved {
+  color: #059669;
+  background: color-mix(in srgb, #10b981 12%, var(--surface));
+  border: 1px solid color-mix(in srgb, #10b981 30%, transparent);
+}
+.approval-status-banner.rejected {
+  color: #dc2626;
+  background: color-mix(in srgb, #ef4444 12%, var(--surface));
+  border: 1px solid color-mix(in srgb, #ef4444 30%, transparent);
+}
+
+.approval-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.btn-approve {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 8px 18px;
+  font: 600 13px var(--sans);
+  color: #ffffff;
+  background: #10b981;
+  border: none;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  box-shadow: 0 1px 3px rgba(16, 185, 129, 0.3);
+  transition: background-color 0.15s ease, transform 0.1s ease;
+}
+.btn-approve:hover:not(:disabled) {
+  background: #059669;
+  transform: translateY(-1px);
+}
+.btn-approve:active:not(:disabled) {
+  transform: translateY(0);
+}
+.btn-approve:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.btn-reject {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 8px 18px;
+  font: 600 13px var(--sans);
+  color: #ffffff;
+  background: #ef4444;
+  border: none;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  box-shadow: 0 1px 3px rgba(239, 68, 68, 0.3);
+  transition: background-color 0.15s ease, transform 0.1s ease;
+}
+.btn-reject:hover:not(:disabled) {
+  background: #dc2626;
+  transform: translateY(-1px);
+}
+.btn-reject:active:not(:disabled) {
+  transform: translateY(0);
+}
+.btn-reject:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Approval card -------------------------------------------------------------- */
 
 .approval {
   align-self: flex-start;
   width: min(70ch, 100%);
-  border: 1px solid var(--signal);
+  border: 1.5px solid var(--warn);
   border-radius: var(--radius);
   background: var(--surface);
-  box-shadow: var(--shadow-1);
+  box-shadow: 0 4px 16px color-mix(in srgb, var(--warn) 15%, transparent);
   overflow: hidden;
   font-size: 13px;
 }
 .approval-heading {
-  padding: 14px 16px;
+  padding: 12px 16px;
   font: 700 14px var(--sans);
+  background: color-mix(in srgb, var(--warn) 10%, var(--surface));
+  color: var(--text);
+  border-bottom: 1px solid color-mix(in srgb, var(--warn) 25%, transparent);
 }
 .approval-body {
-  padding: 0 16px 16px;
-  border-top: 1px solid var(--border);
-  padding-top: 12px;
-}
-.approval-actions {
-  display: flex;
-  gap: 8px;
-  margin-top: 12px;
+  padding: 14px 16px;
 }
 .approval-raw {
   margin: 0;
-  padding: 9px 11px;
-  background: var(--surface-2);
+  padding: 10px 12px;
+  background: var(--bg);
+  border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   max-height: 320px;
   overflow: auto;
@@ -689,40 +861,46 @@ textarea {
   gap: 10px;
 }
 .approval-action {
-  padding: 10px 12px;
-  background: var(--surface-2);
+  padding: 12px 14px;
+  background: var(--bg);
+  border: 1px solid var(--border);
   border-radius: var(--radius-sm);
 }
 .approval-action-name {
-  font: 600 12.5px var(--mono);
+  font: 600 13px var(--mono);
   color: var(--text);
 }
-/* Shared readable key/value rows — used by both the approval card's action
-   list and the tool card's Arguments block, so both look like one system. */
+
 .kv-list {
   margin: 8px 0 0;
   display: grid;
-  grid-template-columns: auto 1fr;
-  gap: 4px 12px;
+  grid-template-columns: minmax(100px, auto) 1fr;
+  gap: 6px 12px;
+  align-items: start;
 }
 .kv-row {
   display: contents;
 }
 .kv-row dt {
-  font: 500 12px var(--mono);
+  font: 600 12px var(--mono);
   color: var(--text-dim);
+  background: var(--surface-2);
+  padding: 4px 8px;
+  border-radius: 4px;
+  word-break: break-word;
 }
 .kv-row dd {
   margin: 0;
   font: 12px/1.5 var(--mono);
   color: var(--text);
+  background: var(--surface-2);
+  padding: 4px 10px;
+  border-radius: 4px;
   overflow-wrap: anywhere;
-  max-height: 120px;
+  max-height: 140px;
   overflow-y: auto;
 }
 
-/* Resolved: a small permanent pill, not the full bordered card above — there
-   is nothing left to decide, so nothing here ever expands or collapses. */
 .approval-summary {
   align-self: flex-start;
   display: flex;
@@ -741,10 +919,12 @@ textarea {
 .approval-summary[data-state='approved'] {
   color: var(--ok);
   border-color: var(--ok);
+  background: var(--ok-soft);
 }
 .approval-summary[data-state='rejected'] {
   color: var(--danger);
   border-color: var(--danger);
+  background: var(--danger-soft);
 }
 
 /* Error banner ------------------------------------------------------------ */
