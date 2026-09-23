@@ -1,5 +1,6 @@
 # agentstage
 
+![PyPI](https://img.shields.io/pypi/v/agentstage-ui)
 ![Python](https://img.shields.io/badge/python-3.12%2B-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
 ![Status](https://img.shields.io/badge/status-pre--alpha-orange)
@@ -38,19 +39,11 @@ That gives you a working app with chat input, streaming output, markdown renderi
 
 ## Installation
 
-agentstage is not yet published to PyPI. In the meantime, install it directly from GitHub:
-
-```bash
-pip install git+https://github.com/rahulrd25/agentstage.git
-```
-
-Once published, installation will be:
-
 ```bash
 pip install agentstage-ui
 ```
 
-Requires Python 3.12 or later.
+Requires Python 3.12 or later. The package on PyPI is `agentstage-ui`; the import name is still `agentstage`.
 
 ## Quick start
 
